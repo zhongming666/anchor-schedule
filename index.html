@@ -1,0 +1,670 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>主播排班总表</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --panel: #fff;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #cfd6e2;
+      --head: #cfe2f3;
+      --name: #f7b183;
+      --soft: #eef3f8;
+      --ok: #e8f6ee;
+      --warn: #fff4d8;
+      --bad: #ffe4e4;
+      --blue: #2563eb;
+      --green: #16794c;
+      --red: #b42318;
+      --amber: #9a5b00;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      font-size: 13px;
+    }
+
+    button, input, select { font: inherit; }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      color: var(--ink);
+      white-space: nowrap;
+    }
+    button:hover { border-color: var(--blue); color: var(--blue); }
+    button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    button.danger { color: var(--red); }
+
+    input, select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 5px 6px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 { margin: 0; font-size: 19px; letter-spacing: 0; }
+
+    .tips { margin: 7px 2px 0; color: var(--muted); line-height: 1.6; }
+
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .toolbar label { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+    .toolbar input { width: 126px; }
+    .toolbar input[type="number"] { width: 68px; }
+
+    .wrap { padding: 12px; }
+    .table-shell {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: auto;
+      max-height: calc(100vh - 76px);
+    }
+
+    table { border-collapse: collapse; min-width: 1120px; width: max-content; }
+    th, td { border: 1px solid var(--line); padding: 6px; text-align: center; vertical-align: top; }
+    th { background: var(--head); font-weight: 700; position: sticky; top: 0; z-index: 10; }
+
+    .sticky { position: sticky; z-index: 8; background: #fff; }
+    th.sticky { z-index: 12; background: #b7d4ed; }
+
+    .col-name { width: 86px; min-width: 86px; left: 0; background: var(--name); }
+    .col-rest { width: 58px; min-width: 58px; left: 86px; }
+    .col-left { width: 58px; min-width: 58px; left: 144px; }
+    .col-leave { width: 58px; min-width: 58px; left: 202px; }
+
+    td.col-name { background: #ffd9b8; font-weight: 700; }
+    td.col-rest, td.col-left, td.col-leave { background: #fafcff; }
+
+    .day-col { width: 124px; min-width: 124px; }
+    .day-head { background: #f8cfa7; line-height: 1.35; }
+
+    .mini-actions { display: flex; gap: 4px; justify-content: center; margin-top: 5px; flex-wrap: wrap; }
+    .mini-actions button { padding: 4px 6px; font-size: 12px; }
+
+    .cell { display: grid; gap: 6px; min-height: 70px; }
+    .cell.ok { background: var(--ok); }
+    .cell.warn { background: var(--warn); }
+    .cell.bad { background: var(--bad); }
+
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 12px;
+      background: var(--soft);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .badge.ok { background: #d8f2e3; color: var(--green); }
+    .badge.warn { background: #ffe8ab; color: var(--amber); }
+    .badge.bad { background: #ffd0d0; color: var(--red); }
+
+    .cell-note { min-height: 34px; font-size: 12px; color: var(--muted); line-height: 1.35; text-align: left; }
+    .summary-row td { background: #f8fafc; font-weight: 700; }
+    .summary-cell { white-space: pre-line; text-align: left; line-height: 1.55; font-weight: 400; min-height: 74px; }
+    .summary-cell.ok { background: var(--ok); }
+    .summary-cell.warn { background: var(--warn); }
+    .summary-cell.bad { background: var(--bad); }
+
+    @media (max-width: 760px) {
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .toolbar input { width: 116px; }
+      .table-shell { max-height: calc(100vh - 130px); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>主播排班总表</h1>
+      <div class="tips">只选上班状态和班次；固定班次自动套用时间，只有选择自定义时才需要填写时间。</div>
+    </div>
+    <div class="toolbar">
+      <label>开始 <input id="startDate" type="date"></label>
+      <label>天数 <input id="dayCount" type="number" min="1" max="31"></label>
+      <button id="addAnchor" class="primary">新增主播</button>
+      <button id="autoAll">全部设上班</button>
+      <button id="reset" class="danger">重置示例</button>
+      <button id="exportData" title="把当前数据保存成 JSON 文件">导出数据</button>
+      <button id="importData" title="从 JSON 文件恢复数据">导入数据</button>
+      <input type="file" id="importFile" accept="application/json" hidden>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="table-shell">
+      <table id="sheet"></table>
+    </div>
+  </main>
+
+  <script>
+    const KEY = "one-sheet-anchor-schedule-v7";
+    const WORK_HOURS = 8;
+    const TARGET_HOURS = 4;
+    const SLOT_HOURS = 2;
+    const SLOT_COUNT = TARGET_HOURS / SLOT_HOURS;
+    const SHIFTS = {
+      "早班": "06:00",
+      "8点班": "08:00",
+      "中午班": "12:00",
+      "下午班": "14:00",
+      "晚上班": "16:00"
+    };
+    const SHIFT_ALIASES = {
+      "中班": "中午班",
+      "晚班": "下午班"
+    };
+    const WEEK = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+    const demo = {
+      startDate: "2026-07-10",
+      dayCount: 7,
+      anchors: [
+        { id: id(), name: "陈勇", shift: "早班", start: "06:00", restLimit: 4 },
+        { id: id(), name: "邓航", shift: "中午班", start: "12:00", restLimit: 4 },
+        { id: id(), name: "叶永坚", shift: "下午班", start: "14:00", restLimit: 4 }
+      ],
+      days: {}
+    };
+
+    let state = load();
+    const sheet = document.getElementById("sheet");
+    const startDate = document.getElementById("startDate");
+    const dayCount = document.getElementById("dayCount");
+
+    function id() { return "a" + Math.random().toString(36).slice(2, 9); }
+    function clone(value) { return JSON.parse(JSON.stringify(value)); }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(KEY);
+        return raw ? normalize({ ...clone(demo), ...JSON.parse(raw) }) : clone(demo);
+      } catch {
+        return clone(demo);
+      }
+    }
+
+    function normalize(next) {
+      next.anchors = (next.anchors || []).map(anchor => ({
+        id: anchor.id || id(),
+        name: anchor.name || "未命名",
+        shift: normalizeShift(anchor.shift || shiftByStart(anchor.start || "06:00")),
+        start: anchor.start || SHIFTS[normalizeShift(anchor.shift)] || "06:00",
+        restLimit: Number(anchor.restLimit ?? 4)
+      }));
+      next.days ||= {};
+      return next;
+    }
+
+    function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+    function min(time) {
+      const [h, m = 0] = String(time).split(":").map(Number);
+      return h * 60 + m;
+    }
+
+    function timeText(total) {
+      const day = 24 * 60;
+      const value = ((total % day) + day) % day;
+      const h = String(Math.floor(value / 60)).padStart(2, "0");
+      const m = String(value % 60).padStart(2, "0");
+      return `${h}:${m}`;
+    }
+
+    function endTime(anchor) { return timeText(min(anchor.start) + WORK_HOURS * 60); }
+
+    function dayStart(date, anchor) {
+      const cell = dayCell(date, anchor.id);
+      const shift = normalizeShift(cell.shift || anchor.shift);
+      if (shift !== "自定义" && SHIFTS[shift]) return SHIFTS[shift];
+      return cell.start || anchor.start || "06:00";
+    }
+
+    function dayEnd(date, anchor) {
+      return timeText(min(dayStart(date, anchor)) + WORK_HOURS * 60);
+    }
+
+    function normalizeShift(shift) {
+      return SHIFT_ALIASES[shift] || shift || "早班";
+    }
+
+    function shiftByStart(start) {
+      const found = Object.entries(SHIFTS).find(([, value]) => value === start);
+      return found ? found[0] : "自定义";
+    }
+
+    function slotStart(slot) { return min(slot.split("-")[0]); }
+    function slotEnd(slot) { return slot.split("-")[1] === "24:00" ? 1440 : min(slot.split("-")[1]); }
+
+    function localKey(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function dates() {
+      const start = new Date(`${state.startDate}T00:00:00`);
+      const count = Math.max(1, Math.min(31, Number(state.dayCount) || 1));
+      return Array.from({ length: count }, (_, i) => {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i);
+        return localKey(d);
+      });
+    }
+
+    function previousDate(dateKey) {
+      const d = new Date(`${dateKey}T00:00:00`);
+      d.setDate(d.getDate() - 1);
+      return localKey(d);
+    }
+
+    function label(dateKey) {
+      const d = new Date(`${dateKey}T00:00:00`);
+      return `${d.getMonth() + 1}/${d.getDate()}\n${WEEK[d.getDay()]}`;
+    }
+
+    function dayCell(date, anchorId) {
+      state.days[date] ||= {};
+      const anchor = state.anchors.find(item => item.id === anchorId);
+      state.days[date][anchorId] ||= { status: "上班", shift: anchor?.shift || "早班", start: anchor?.start || "06:00" };
+      return state.days[date][anchorId];
+    }
+
+    function anchorSlots(anchor, date = "") {
+      const start = min(date ? dayStart(date, anchor) : anchor.start);
+      const end = start + WORK_HOURS * 60;
+      const slots = [];
+      for (let t = start; t + SLOT_HOURS * 60 <= end; t += SLOT_HOURS * 60) {
+        slots.push(`${timeText(t)}-${timeText(t + SLOT_HOURS * 60)}`);
+      }
+      return slots;
+    }
+
+    let currentTimelineDate = "";
+
+    function allTimelineSlots() {
+      const working = state.anchors.filter(anchor => dayCell(currentTimelineDate, anchor.id).status === "上班");
+      if (!working.length) return [];
+      const start = Math.min(...working.map(anchor => min(dayStart(currentTimelineDate, anchor))));
+      const end = Math.max(...working.map(anchor => min(dayStart(currentTimelineDate, anchor)) + WORK_HOURS * 60));
+      const slots = [];
+      for (let t = start; t + SLOT_HOURS * 60 <= end; t += SLOT_HOURS * 60) {
+        slots.push(`${timeText(t)}-${timeText(t + SLOT_HOURS * 60)}`);
+      }
+      return slots;
+    }
+
+    function buildDaySchedule(date) {
+      const plan = {};
+      const rows = [];
+      const counts = {};
+      const gaps = [];
+      state.anchors.forEach(anchor => {
+        plan[anchor.id] = [];
+        counts[anchor.id] = 0;
+      });
+
+      let previousAnchorId = "";
+      let stopped = false;
+      allTimelineSlots().forEach(slot => {
+        if (stopped) return;
+        const candidates = state.anchors
+          .filter(anchor => dayCell(date, anchor.id).status === "上班")
+          .filter(anchor => anchorSlots(anchor, date).includes(slot))
+          .filter(anchor => counts[anchor.id] < SLOT_COUNT)
+          .filter(anchor => anchor.id !== previousAnchorId)
+          .sort((a, b) => {
+            const aEnd = min(dayStart(date, a)) + WORK_HOURS * 60;
+            const bEnd = min(dayStart(date, b)) + WORK_HOURS * 60;
+            return counts[a.id] - counts[b.id] || aEnd - bEnd || min(dayStart(date, a)) - min(dayStart(date, b));
+          });
+
+        const picked = candidates[0];
+        if (!picked) {
+          if (rows.length) {
+            gaps.push(slot);
+            stopped = true;
+          }
+          return;
+        }
+
+        plan[picked.id].push(slot);
+        counts[picked.id] += 1;
+        previousAnchorId = picked.id;
+        rows.push({ slot, name: picked.name, anchorId: picked.id });
+      });
+
+      return { plan, rows, gaps };
+    }
+
+    function buildDayPlan(date) {
+      return buildDaySchedule(date).plan;
+    }
+
+    function setAnchor(anchorId, patch) {
+      state.anchors = state.anchors.map(anchor => anchor.id === anchorId ? { ...anchor, ...patch } : anchor);
+      save();
+      render();
+    }
+
+    function setStart(anchorId, start) {
+      setAnchor(anchorId, { start, shift: shiftByStart(start) });
+    }
+
+    function setCell(date, anchorId, patch) {
+      Object.assign(dayCell(date, anchorId), patch);
+      save();
+      render();
+    }
+
+    function deleteAnchor(anchorId) {
+      state.anchors = state.anchors.filter(anchor => anchor.id !== anchorId);
+      Object.values(state.days).forEach(day => delete day[anchorId]);
+      save();
+      render();
+    }
+
+    function clearDay(date) {
+      state.anchors.forEach(anchor => {
+        const cell = dayCell(date, anchor.id);
+        cell.status = "上班";
+        cell.shift = normalizeShift(anchor.shift);
+        cell.start = anchor.start;
+      });
+      save();
+      render();
+    }
+
+    function copyPreviousDay(date) {
+      const prev = previousDate(date);
+      state.days[date] = clone(state.days[prev] || {});
+      state.anchors.forEach(anchor => dayCell(date, anchor.id));
+      save();
+      render();
+    }
+
+    function restStats(anchorId) {
+      let rest = 0;
+      let leave = 0;
+      dates().forEach(date => {
+        const status = dayCell(date, anchorId).status;
+        if (status === "休息") rest++;
+        if (status === "请假") leave++;
+      });
+      return { rest, leave };
+    }
+
+    function validateCell(date, anchor) {
+      const status = dayCell(date, anchor.id).status;
+      if (status === "休息") return { type: "rest", text: "休息", hours: 0 };
+      if (status === "请假") return { type: "leave", text: "请假", hours: 0 };
+      const hours = (buildDayPlan(date)[anchor.id] || []).length * SLOT_HOURS;
+      if (hours === TARGET_HOURS) return { type: "ok", text: "完成4h", hours };
+      if (hours > TARGET_HOURS) return { type: "bad", text: `${hours}h超时`, hours };
+      return { type: "warn", text: `${hours}h未满`, hours };
+    }
+
+    function daySummary(date) {
+      const schedule = buildDaySchedule(date);
+      let bad = 0;
+      let warn = schedule.gaps.length ? 1 : 0;
+      state.anchors.forEach(anchor => {
+        const result = validateCell(date, anchor);
+        if (result.type === "bad") bad++;
+        if (result.type === "warn") warn++;
+      });
+      const text = schedule.rows.length ? schedule.rows.map(item => `${item.name} ${item.slot}`).join("\n") : "未排班";
+      const gapText = schedule.gaps.length ? `\n断播：${schedule.gaps.join("、")}` : "";
+      return {
+        type: bad ? "bad" : warn ? "warn" : "ok",
+        text: text + gapText
+      };
+    }
+
+    function render() {
+      startDate.value = state.startDate;
+      dayCount.value = state.dayCount;
+      const ds = dates();
+      const head = `
+        <thead>
+          <tr>
+            <th class="sticky col-name">主播</th>
+            <th class="sticky col-rest">可休</th>
+            <th class="sticky col-left">剩余</th>
+            <th class="sticky col-leave">请假</th>
+            ${ds.map(date => `<th class="day-col day-head">${label(date)}<div class="mini-actions"><button data-copy="${date}">复制前一天</button><button data-clear="${date}">删除</button></div></th>`).join("")}
+            <th>操作</th>
+          </tr>
+        </thead>
+      `;
+
+      const body = state.anchors.map(anchor => {
+        const stats = restStats(anchor.id);
+        const left = Number(anchor.restLimit || 0) - stats.rest;
+        const statClass = left < 0 ? "bad" : left === 0 ? "warn" : "ok";
+        return `
+          <tr>
+            <td class="sticky col-name"><input value="${esc(anchor.name)}" data-name="${anchor.id}"></td>
+            <td class="sticky col-rest"><input type="number" min="0" value="${anchor.restLimit}" data-rest="${anchor.id}"></td>
+            <td class="sticky col-left"><span class="badge ${statClass}">${left}</span></td>
+            <td class="sticky col-leave">${stats.leave}</td>
+            ${ds.map(date => renderDayCell(date, anchor)).join("")}
+            <td><button class="danger" data-delete="${anchor.id}">删除</button></td>
+          </tr>
+        `;
+      }).join("");
+
+      const summary = `
+        <tr class="summary-row">
+          <td class="sticky col-name">上播时间</td>
+          <td class="sticky col-rest" colspan="3">按每天班次自动汇总 2+2，不能断播/连播</td>
+          ${ds.map(date => {
+            const sum = daySummary(date);
+            return `<td class="summary-cell ${sum.type}">${esc(sum.text)}</td>`;
+          }).join("")}
+          <td></td>
+        </tr>
+      `;
+
+      sheet.innerHTML = `${head}<tbody>${body || emptyRow(ds.length)}${summary}</tbody>`;
+      bindTable();
+    }
+
+    function renderDayCell(date, anchor) {
+      const cell = dayCell(date, anchor.id);
+      const result = validateCell(date, anchor);
+      const plan = buildDayPlan(date)[anchor.id] || [];
+      const cls = result.type === "ok" ? "ok" : result.type === "bad" ? "bad" : result.type === "warn" ? "warn" : "";
+      const shift = normalizeShift(cell.shift || anchor.shift);
+      const customInput = shift === "自定义" ? `<input type="time" step="3600" value="${dayStart(date, anchor)}" data-day-start="${date}|${anchor.id}">` : "";
+      return `
+        <td class="day-col">
+          <div class="cell ${cls}">
+            <select data-status="${date}|${anchor.id}">
+              <option value="上班">上班</option>
+              <option value="休息">休息</option>
+              <option value="请假">请假</option>
+            </select>
+            <select data-day-shift="${date}|${anchor.id}">
+              <option value="早班">早班</option>
+              <option value="8点班">8点班</option>
+              <option value="中午班">中午班</option>
+              <option value="下午班">下午班</option>
+              <option value="晚上班">晚上班</option>
+              <option value="自定义">自定义</option>
+            </select>
+            ${customInput}
+            <span class="badge ${cls}">${result.text}</span>
+            <div class="cell-note">${dayStart(date, anchor)}-${dayEnd(date, anchor)}<br>自动：${plan.join(" + ") || "未排出"}</div>
+          </div>
+        </td>
+      `;
+    }
+
+    function emptyRow(dayLength) {
+      return `
+        <tr>
+          <td class="sticky col-name" colspan="4">暂无主播</td>
+          ${Array.from({ length: dayLength }, () => `<td class="day-col">新增主播后使用</td>`).join("")}
+          <td></td>
+        </tr>
+      `;
+    }
+
+    function bindTable() {
+      sheet.querySelectorAll("[data-name]").forEach(input => {
+        input.addEventListener("change", () => setAnchor(input.dataset.name, { name: input.value.trim() || "未命名" }));
+      });
+      sheet.querySelectorAll("[data-rest]").forEach(input => {
+        input.addEventListener("change", () => setAnchor(input.dataset.rest, { restLimit: Math.max(0, Number(input.value) || 0) }));
+      });
+      sheet.querySelectorAll("[data-status]").forEach(select => {
+        const [date, anchorId] = select.getAttribute("data-status").split("|");
+        select.value = dayCell(date, anchorId).status;
+        select.addEventListener("change", () => setCell(date, anchorId, { status: select.value }));
+      });
+      sheet.querySelectorAll("[data-day-shift]").forEach(select => {
+        const [date, anchorId] = select.getAttribute("data-day-shift").split("|");
+        const cell = dayCell(date, anchorId);
+        select.value = normalizeShift(cell.shift) || "早班";
+        select.addEventListener("change", () => {
+          const shift = normalizeShift(select.value);
+          const start = SHIFTS[shift] || cell.start || "06:00";
+          setCell(date, anchorId, { shift, start });
+        });
+      });
+      sheet.querySelectorAll("[data-day-start]").forEach(input => {
+        const [date, anchorId] = input.getAttribute("data-day-start").split("|");
+        input.addEventListener("change", () => setCell(date, anchorId, { start: input.value || "06:00", shift: shiftByStart(input.value || "06:00") }));
+      });
+      sheet.querySelectorAll("[data-delete]").forEach(button => {
+        button.addEventListener("click", () => deleteAnchor(button.dataset.delete));
+      });
+      sheet.querySelectorAll("[data-copy]").forEach(button => {
+        button.addEventListener("click", () => copyPreviousDay(button.dataset.copy));
+      });
+      sheet.querySelectorAll("[data-clear]").forEach(button => {
+        button.addEventListener("click", () => clearDay(button.dataset.clear));
+      });
+    }
+
+    function esc(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    startDate.addEventListener("change", () => {
+      state.startDate = startDate.value;
+      save();
+      render();
+    });
+    dayCount.addEventListener("change", () => {
+      state.dayCount = Math.max(1, Math.min(31, Number(dayCount.value) || 1));
+      save();
+      render();
+    });
+    document.getElementById("addAnchor").addEventListener("click", () => {
+      state.anchors.push({ id: id(), name: `主播${state.anchors.length + 1}`, shift: "早班", start: "06:00", restLimit: 4 });
+      save();
+      render();
+    });
+    document.getElementById("autoAll").addEventListener("click", () => {
+      dates().forEach(date => state.anchors.forEach(anchor => {
+        const cell = dayCell(date, anchor.id);
+        cell.status = "上班";
+        cell.shift = normalizeShift(anchor.shift);
+        cell.start = anchor.start;
+      }));
+      save();
+      render();
+    });
+    document.getElementById("reset").addEventListener("click", () => {
+      state = clone(demo);
+      save();
+      render();
+    });
+﻿    document.getElementById("exportData").addEventListener("click", () => {
+      const payload = {
+        version: KEY,
+        exportedAt: new Date().toISOString(),
+        state
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "anchor-schedule-" + stamp + ".json";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    document.getElementById("importData").addEventListener("click", () => {
+      document.getElementById("importFile").click();
+    });
+    document.getElementById("importFile").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          const next = data && data.state ? data.state : data;
+          if (!next || !Array.isArray(next.anchors)) throw new Error("数据格式不对");
+          if (!confirm("导入会覆盖当前所有数据，确定继续？")) return;
+          state = next;
+          save();
+          render();
+        } catch (err) {
+          alert("导入失败：" + err.message);
+        } finally {
+          e.target.value = "";
+        }
+      };
+      reader.readAsText(file);
+    });
+    render();
+  </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
