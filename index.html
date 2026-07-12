@@ -147,8 +147,6 @@
       <div class="tips">只选上班状态和班次；固定班次自动套用时间，只有选择自定义时才需要填写时间。</div>
     </div>
     <div class="toolbar">
-      <label>开始 <input id="startDate" type="date"></label>
-      <label>天数 <input id="dayCount" type="number" min="1" max="31"></label>
       <label>显示起始 <input id="displayStart" type="date"></label>
       <span class="muted" id="displayHint">显示当天起 7 天</span>
       <button id="addAnchor" class="primary">新增主播</button>
@@ -186,8 +184,6 @@
     const WEEK = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
     const demo = {
-      startDate: "2026-07-10",
-      dayCount: 7,
       displayStart: "",
       anchors: [
         { id: id(), name: "陈勇", shift: "早班", start: "06:00", restLimit: 4 },
@@ -199,8 +195,6 @@
 
     let state = load();
     const sheet = document.getElementById("sheet");
-    const startDate = document.getElementById("startDate");
-    const dayCount = document.getElementById("dayCount");
 
     function id() { return "a" + Math.random().toString(36).slice(2, 9); }
     function clone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -214,6 +208,7 @@
       }
 
     function normalize(next) {
+      next.displayStart = next.displayStart || next.startDate || localKey(new Date());
       next.anchors = (next.anchors || []).map(anchor => ({
         id: anchor.id || id(),
         name: anchor.name || "未命名",
@@ -273,18 +268,9 @@
     }
 
         function dates() {
-      const today = new Date();
-      let start, end, count;
-      if (state.displayStart) {
-        start = new Date(state.displayStart + "T00:00:00");
-        end = new Date(start);
-        end.setDate(end.getDate() + 6);
-      } else {
-        start = new Date(state.startDate + "T00:00:00");
-        count = Math.max(1, Math.min(31, Number(state.dayCount) || 1));
-        end = new Date(start);
-        end.setDate(end.getDate() + count - 1);
-      }
+      const start = new Date((state.displayStart || localKey(new Date())) + "T00:00:00");
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
       const result = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         result.push(localKey(d));
@@ -463,10 +449,8 @@
     }
 
     function render() {
-      startDate.value = state.startDate;
-      dayCount.value = state.dayCount;
       const dsEl = document.getElementById("displayStart");
-      dsEl.value = state.displayStart || state.startDate;
+      dsEl.value = state.displayStart;
       const hintEl = document.getElementById("displayHint");
       const dsList = dates();
       if (dsList.length) {
@@ -605,17 +589,6 @@
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
     }
-
-    startDate.addEventListener("change", () => {
-      state.startDate = startDate.value;
-      save();
-      render();
-    });
-    dayCount.addEventListener("change", () => {
-      state.dayCount = Math.max(1, Math.min(31, Number(dayCount.value) || 1));
-      save();
-      render();
-    });
 
     document.getElementById("displayStart").addEventListener("change", (e) => {
       state.displayStart = e.target.value;
