@@ -202,10 +202,11 @@
     function load() {
       try {
         const raw = localStorage.getItem(KEY);
-        return raw ? normalize({ ...clone(demo), ...JSON.parse(raw) }) : clone(demo);
+        return raw ? normalize({ ...clone(demo), ...JSON.parse(raw) }) : normalize(clone(demo));
       } catch {
-        return clone(demo);
+        return normalize(clone(demo));
       }
+    }
 
     function normalize(next) {
       next.displayStart = next.displayStart || next.startDate || localKey(new Date());
@@ -267,7 +268,7 @@
       return `${y}-${m}-${d}`;
     }
 
-        function dates() {
+    function dates() {
       const start = new Date((state.displayStart || localKey(new Date())) + "T00:00:00");
       const end = new Date(start);
       end.setDate(end.getDate() + 6);
@@ -276,7 +277,6 @@
         result.push(localKey(d));
       }
       return result;
-    }
     }
 
     function previousDate(dateKey) {
@@ -611,7 +611,7 @@
       render();
     });
     document.getElementById("reset").addEventListener("click", () => {
-      state = clone(demo);
+      state = normalize(clone(demo));
       save();
       render();
     });
@@ -643,7 +643,7 @@
           const next = data && data.state ? data.state : data;
           if (!next || !Array.isArray(next.anchors)) throw new Error("数据格式不对");
           if (!confirm("导入会覆盖当前所有数据，确定继续？")) return;
-          state = next;
+          state = normalize(next);
           save();
           render();
         } catch (err) {
