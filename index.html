@@ -147,8 +147,9 @@
       <div class="tips">只选上班状态和班次；固定班次自动套用时间，只有选择自定义时才需要填写时间。</div>
     </div>
     <div class="toolbar">
-      <label>显示起始 <input id="displayStart" type="date"></label>
-      <span class="muted" id="displayHint">显示当天起 7 天</span>
+      <label>起始日期 <input id="displayStart" type="date"></label>
+      <label>结束日期 <input id="displayEnd" type="date"></label>
+      <span class="muted" id="displayHint">按选择日期显示</span>
       <button id="addAnchor" class="primary">新增主播</button>
       <button id="autoAll">全部设上班</button>
       <button id="reset" class="danger">重置示例</button>
@@ -185,6 +186,7 @@
 
     const demo = {
       displayStart: "",
+      displayEnd: "",
       anchors: [
         { id: id(), name: "陈勇", shift: "早班", start: "06:00", restLimit: 4 },
         { id: id(), name: "邓航", shift: "中午班", start: "12:00", restLimit: 4 },
@@ -210,6 +212,11 @@
 
     function normalize(next) {
       next.displayStart = next.displayStart || next.startDate || localKey(new Date());
+      if (!next.displayEnd) {
+        const end = new Date(next.displayStart + "T00:00:00");
+        end.setDate(end.getDate() + 6);
+        next.displayEnd = localKey(end);
+      }
       next.anchors = (next.anchors || []).map(anchor => ({
         id: anchor.id || id(),
         name: anchor.name || "未命名",
@@ -269,9 +276,13 @@
     }
 
     function dates() {
-      const start = new Date((state.displayStart || localKey(new Date())) + "T00:00:00");
-      const end = new Date(start);
-      end.setDate(end.getDate() + 6);
+      let start = new Date((state.displayStart || localKey(new Date())) + "T00:00:00");
+      let end = new Date((state.displayEnd || state.displayStart || localKey(new Date())) + "T00:00:00");
+      if (end < start) {
+        const temp = start;
+        start = end;
+        end = temp;
+      }
       const result = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         result.push(localKey(d));
@@ -451,6 +462,8 @@
     function render() {
       const dsEl = document.getElementById("displayStart");
       dsEl.value = state.displayStart;
+      const deEl = document.getElementById("displayEnd");
+      deEl.value = state.displayEnd;
       const hintEl = document.getElementById("displayHint");
       const dsList = dates();
       if (dsList.length) {
@@ -592,6 +605,14 @@
 
     document.getElementById("displayStart").addEventListener("change", (e) => {
       state.displayStart = e.target.value;
+      if (!state.displayEnd || new Date(state.displayEnd + "T00:00:00") < new Date(state.displayStart + "T00:00:00")) {
+        state.displayEnd = state.displayStart;
+      }
+      save();
+      render();
+    });
+    document.getElementById("displayEnd").addEventListener("change", (e) => {
+      state.displayEnd = e.target.value;
       save();
       render();
     });
