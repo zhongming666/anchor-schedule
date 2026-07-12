@@ -149,7 +149,15 @@
     <div class="toolbar">
       <label>开始 <input id="startDate" type="date"></label>
       <label>天数 <input id="dayCount" type="number" min="1" max="31"></label>
-      <button id="addAnchor" class="primary">新增主播</button>
+      <label>显示 <select id="viewRange">
+        <option value="all">全部</option>
+        <option value="month">本月</option>
+        <option value="nextMonth">下个月</option>
+        <option value="custom">自定义</option>
+      </select></label>
+      <span id="customRange" hidden>
+        <input id="rangeStart" type="date"> 至 <input id="rangeEnd" type="date">
+      </span>      <button id="addAnchor" class="primary">新增主播</button>
       <button id="autoAll">全部设上班</button>
       <button id="reset" class="danger">重置示例</button>
       <button id="exportData" title="把当前数据保存成 JSON 文件">导出数据</button>
@@ -186,6 +194,9 @@
     const demo = {
       startDate: "2026-07-10",
       dayCount: 7,
+      viewRange: "all",
+      rangeStart: "",
+      rangeEnd: "",
       anchors: [
         { id: id(), name: "陈勇", shift: "早班", start: "06:00", restLimit: 4 },
         { id: id(), name: "邓航", shift: "中午班", start: "12:00", restLimit: 4 },
@@ -209,7 +220,6 @@
       } catch {
         return clone(demo);
       }
-    }
 
     function normalize(next) {
       next.anchors = (next.anchors || []).map(anchor => ({
@@ -270,14 +280,31 @@
       return `${y}-${m}-${d}`;
     }
 
-    function dates() {
-      const start = new Date(`${state.startDate}T00:00:00`);
-      const count = Math.max(1, Math.min(31, Number(state.dayCount) || 1));
-      return Array.from({ length: count }, (_, i) => {
-        const d = new Date(start);
-        d.setDate(d.getDate() + i);
-        return localKey(d);
-      });
+        function dates() {
+      const today = new Date();
+      let start, end, count;
+      if (state.viewRange === "month") {
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      } else if (state.viewRange === "nextMonth") {
+        start = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+      } else if (state.viewRange === "custom" && state.rangeStart && state.rangeEnd) {
+        start = new Date(state.rangeStart + "T00:00:00");
+        end = new Date(state.rangeEnd + "T00:00:00");
+        if (end < start) { const t = start; start = end; end = t; }
+      } else {
+        start = new Date(state.startDate + "T00:00:00");
+        count = Math.max(1, Math.min(31, Number(state.dayCount) || 1));
+        end = new Date(start);
+        end.setDate(end.getDate() + count - 1);
+      }
+      const result = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        result.push(localKey(d));
+      }
+      return result;
+    }
     }
 
     function previousDate(dateKey) {
@@ -452,6 +479,10 @@
     function render() {
       startDate.value = state.startDate;
       dayCount.value = state.dayCount;
+      document.getElementById("viewRange").value = state.viewRange || "all";
+      document.getElementById("customRange").hidden = state.viewRange !== "custom";
+      rangeStartEl.value = state.rangeStart || "";
+      rangeEndEl.value = state.rangeEnd || "";
       const ds = dates();
       const head = `
         <thead>
@@ -595,6 +626,24 @@
       save();
       render();
     });
+
+    document.getElementById("viewRange").addEventListener("change", (e) => {
+      const value = e.target.value;
+      state.viewRange = value;
+      document.getElementById("customRange").hidden = value !== "custom";
+      save();
+      render();
+    });
+    const rangeStartEl = document.getElementById("rangeStart");
+    const rangeEndEl = document.getElementById("rangeEnd");
+    function syncRange() {
+      state.rangeStart = rangeStartEl.value;
+      state.rangeEnd = rangeEndEl.value;
+      save();
+      render();
+    }
+    rangeStartEl.addEventListener("change", syncRange);
+    rangeEndEl.addEventListener("change", syncRange);
     document.getElementById("addAnchor").addEventListener("click", () => {
       state.anchors.push({ id: id(), name: `主播${state.anchors.length + 1}`, shift: "早班", start: "06:00", restLimit: 4 });
       save();
