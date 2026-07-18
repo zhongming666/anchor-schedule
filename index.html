@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
@@ -133,6 +133,26 @@
     .summary-cell.warn { background: var(--warn); }
     .summary-cell.bad { background: var(--bad); }
 
+    .performance-tools {
+      display: grid;
+      gap: 9px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .performance-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .performance-toolbar label { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+    .performance-toolbar input { width: 126px; }
+    .performance-status { color: var(--muted); }
+    .score-table { border-collapse: collapse; width: 100%; min-width: 680px; }
+    .score-table th, .score-table td { padding: 5px 7px; text-align: right; vertical-align: middle; }
+    .score-table th:first-child, .score-table td:first-child,
+    .score-table th:nth-child(2), .score-table td:nth-child(2) { text-align: left; }
+    .score-table th { position: static; background: #eef3f8; }
+    .score-table-wrap { overflow-x: auto; }
+
     @media (max-width: 760px) {
       .topbar { align-items: flex-start; flex-direction: column; }
       .toolbar input { width: 116px; }
@@ -160,6 +180,17 @@
   </header>
 
   <main class="wrap">
+    <section class="performance-tools">
+      <div class="performance-toolbar">
+        <strong>按周业绩自动排班</strong>
+        <label>参考业绩开始 <input id="performanceStart" type="date"></label>
+        <label>参考业绩结束 <input id="performanceEnd" type="date"></label>
+        <button id="loadPerformance" class="primary">获取业绩排名</button>
+        <button id="generateSchedule">按排名生成本区间排班</button>
+        <span id="performanceStatus" class="performance-status">休息、请假仍需手动选择</span>
+      </div>
+      <div id="scorePanel"></div>
+    </section>
     <div class="table-shell">
       <table id="sheet"></table>
     </div>
@@ -171,6 +202,7 @@
     const TARGET_HOURS = 4;
     const SLOT_HOURS = 2;
     const SLOT_COUNT = TARGET_HOURS / SLOT_HOURS;
+    const PERFORMANCE_API = "https://codex-d1gj31p1fb4de9a31-1451446845.tcloudbaseapp.com/anchor-submissions";
     const SHIFTS = {
       "早班": "06:00",
       "8点班": "08:00",
@@ -225,6 +257,14 @@
         restLimit: Number(anchor.restLimit ?? 4)
       }));
       next.days ||= {};
+      if (!next.performanceStart || !next.performanceEnd) {
+        const end = new Date(next.displayStart + "T00:00:00");
+        end.setDate(end.getDate() - 1);
+        const start = new Date(end);
+        start.setDate(start.getDate() - 6);
+        next.performanceStart ||= localKey(start);
+        next.performanceEnd ||= localKey(end);
+      }
       return next;
     }
 
@@ -354,7 +394,7 @@
           .sort((a, b) => {
             const aEnd = min(dayStart(date, a)) + WORK_HOURS * 60;
             const bEnd = min(dayStart(date, b)) + WORK_HOURS * 60;
-            return counts[a.id] - counts[b.id] || aEnd - bEnd || min(dayStart(date, a)) - min(dayStart(date, b));
+            return counts[a.id] - counts[b.id] || rankScore(b.name) - rankScore(a.name) || aEnd - bEnd || min(dayStart(date, a)) - min(dayStart(date, b));
           });
 
         const picked = candidates[0];
@@ -432,6 +472,119 @@
       return { rest, leave };
     }
 
+    function parseMetric(value) {
+      const number = Number(String(value ?? "").replace(/[,￥¥%]/g, "").trim());
+      return Number.isFinite(number) && number > 0 ? number : 0;
+    }
+
+    function durationHours(row) {
+      const start = String(row.startTime || "").split(":").map(Number);
+      const end = String(row.endTime || "").split(":").map(Number);
+      if (start.length < 2 || end.length < 2 || !start.every(Number.isFinite) || !end.every(Number.isFinite)) return 0;
+      let startMin = start[0] * 60 + start[1];
+      let endMin = end[0] * 60 + end[1];
+      if (endMin < startMin) endMin += 1440;
+      return Math.max(0, endMin - startMin) / 60;
+    }
+
+    function buildPerformanceRanking(rows) {
+      const grouped = new Map();
+      rows.filter(row => row && row.anchor && dateInRange(row.date, state.performanceStart, state.performanceEnd)).forEach(row => {
+        const name = String(row.anchor).trim();
+        const item = grouped.get(name) || { name, revenue: 0, spend: 0, hours: 0, sessions: 0 };
+        item.revenue += parseMetric(row.segmentRevenue || row.liveRevenue || row.videoRevenue);
+        item.spend += parseMetric(row.segmentSpend || row.totalSpend);
+        item.hours += durationHours(row) || (String(row.duration || "").includes("2") ? 2 : 0);
+        item.sessions += 1;
+        grouped.set(name, item);
+      });
+      const items = [...grouped.values()].map(item => {
+        item.roi = item.spend > 0 ? item.revenue / item.spend : 0;
+        item.hourly = item.hours > 0 ? item.revenue / item.hours : 0;
+        return item;
+      });
+      const totals = items.reduce((acc, item) => ({
+        revenue: acc.revenue + item.revenue,
+        roi: acc.roi + item.roi,
+        hourly: acc.hourly + item.hourly
+      }), { revenue: 0, roi: 0, hourly: 0 });
+      return items.map(item => {
+        item.revenueShare = totals.revenue ? item.revenue / totals.revenue : 0;
+        item.roiShare = totals.roi ? item.roi / totals.roi : 0;
+        item.hourlyShare = totals.hourly ? item.hourly / totals.hourly : 0;
+        item.score = item.revenueShare * 20 + item.roiShare * 30 + item.hourlyShare * 50;
+        return item;
+      }).sort((a, b) => b.score - a.score || b.hourly - a.hourly || b.revenue - a.revenue || a.name.localeCompare(b.name, "zh-CN"));
+    }
+
+    function rankScore(name) {
+      const item = (state.performanceRanking || []).find(row => row.name === name);
+      return item ? Number(item.score) || 0 : 0;
+    }
+
+    function dateInRange(date, start, end) {
+      if (!date) return false;
+      return (!start || date >= start) && (!end || date <= end);
+    }
+
+    function renderScorePanel() {
+      const panel = document.getElementById("scorePanel");
+      const ranking = state.performanceRanking || [];
+      if (!ranking.length) {
+        panel.innerHTML = "<span class=\"muted\">还没有业绩排名。获取参考区间后，系统会按成交金额20% + ROI30% + 时产占比50%计算。</span>";
+        return;
+      }
+      panel.innerHTML = `<div class="score-table-wrap"><table class="score-table"><thead><tr><th>排名</th><th>主播</th><th>最终得分</th><th>成交金额</th><th>ROI</th><th>时产</th><th>场次</th></tr></thead><tbody>${ranking.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.name)}</td><td>${item.score.toFixed(2)}</td><td>${formatNumber(item.revenue)}</td><td>${item.roi.toFixed(2)}</td><td>${formatNumber(item.hourly)}</td><td>${item.sessions}</td></tr>`).join("")}</tbody></table></div>`;
+    }
+
+    function formatNumber(value) {
+      return Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+    }
+
+    async function loadPerformanceRanking() {
+      const status = document.getElementById("performanceStatus");
+      status.textContent = "正在读取云端业绩...";
+      try {
+        const response = await fetch(PERFORMANCE_API, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.rows)) throw new Error(data.error || "业绩接口返回格式不正确");
+        state.performanceRanking = buildPerformanceRanking(data.rows);
+        save();
+        status.textContent = `已读取 ${state.performanceRanking.length} 位主播，参考 ${state.performanceStart} 至 ${state.performanceEnd}`;
+        render();
+      } catch (error) {
+        status.textContent = "读取失败：" + error.message;
+      }
+    }
+
+    function generateScheduleByRanking() {
+      const ranking = state.performanceRanking || [];
+      if (!ranking.length) {
+        alert("请先点击“获取业绩排名”");
+        return;
+      }
+      const rankIndex = new Map(ranking.map((item, index) => [item.name, index]));
+      const presets = Object.entries(SHIFTS);
+      dates().forEach(date => {
+        const available = state.anchors.filter(anchor => dayCell(date, anchor.id).status === "上班").sort((a, b) => {
+          const ai = rankIndex.has(a.name) ? rankIndex.get(a.name) : 9999;
+          const bi = rankIndex.has(b.name) ? rankIndex.get(b.name) : 9999;
+          return ai - bi || a.name.localeCompare(b.name, "zh-CN");
+        });
+        available.forEach((anchor, index) => {
+          const cell = dayCell(date, anchor.id);
+          const preset = presets[index];
+          if (preset) {
+            cell.shift = preset[0];
+            cell.start = preset[1];
+          }
+        });
+      });
+      save();
+      document.getElementById("performanceStatus").textContent = "已按最终得分生成当前显示区间，休息/请假人员未参与排班";
+      render();
+    }
+
     function validateCell(date, anchor) {
       const status = dayCell(date, anchor.id).status;
       if (status === "休息") return { type: "rest", text: "休息", hours: 0 };
@@ -470,6 +623,9 @@
         const a = dsList[0], b = dsList[dsList.length - 1];
         hintEl.textContent = `${a} → ${b}（共 ${dsList.length} 天）`;
       }
+      document.getElementById("performanceStart").value = state.performanceStart || "";
+      document.getElementById("performanceEnd").value = state.performanceEnd || "";
+      renderScorePanel();
       const ds = dates();
       const head = `
         <thead>
@@ -616,6 +772,16 @@
       save();
       render();
     });
+    document.getElementById("performanceStart").addEventListener("change", (e) => {
+      state.performanceStart = e.target.value;
+      save();
+    });
+    document.getElementById("performanceEnd").addEventListener("change", (e) => {
+      state.performanceEnd = e.target.value;
+      save();
+    });
+    document.getElementById("loadPerformance").addEventListener("click", loadPerformanceRanking);
+    document.getElementById("generateSchedule").addEventListener("click", generateScheduleByRanking);
     document.getElementById("addAnchor").addEventListener("click", () => {
       state.anchors.push({ id: id(), name: `主播${state.anchors.length + 1}`, shift: "早班", start: "06:00", restLimit: 4 });
       save();
