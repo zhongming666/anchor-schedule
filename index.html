@@ -265,6 +265,7 @@
         next.performanceStart ||= localKey(start);
         next.performanceEnd ||= localKey(end);
       }
+      if (next.performancePlatform !== "douyin") next.performanceRanking = [];
       return next;
     }
 
@@ -361,7 +362,7 @@
     let currentTimelineDate = "";
 
     function allTimelineSlots() {
-      const working = state.anchors.filter(anchor => dayCell(currentTimelineDate, anchor.id).status === "上班");
+      const working = state.anchors.filter(anchor => dayCell(currentTimelineDate, anchor.id).status === "上班" && isSchedulableAnchor(anchor));
       if (!working.length) return [];
       const start = Math.min(...working.map(anchor => min(dayStart(currentTimelineDate, anchor))));
       const end = Math.max(...working.map(anchor => min(dayStart(currentTimelineDate, anchor)) + WORK_HOURS * 60));
@@ -387,7 +388,7 @@
       allTimelineSlots().forEach(slot => {
         if (stopped) return;
         const candidates = state.anchors
-          .filter(anchor => dayCell(date, anchor.id).status === "上班")
+          .filter(anchor => dayCell(date, anchor.id).status === "上班" && isSchedulableAnchor(anchor))
           .filter(anchor => anchorSlots(anchor, date).includes(slot))
           .filter(anchor => counts[anchor.id] < SLOT_COUNT)
           .filter(anchor => anchor.id !== previousAnchorId)
@@ -489,7 +490,7 @@
 
     function buildPerformanceRanking(rows) {
       const grouped = new Map();
-      rows.filter(row => row && row.anchor && dateInRange(row.date, state.performanceStart, state.performanceEnd)).forEach(row => {
+      rows.filter(row => row && row.platform !== "video" && row.anchor && dateInRange(row.date, state.performanceStart, state.performanceEnd)).forEach(row => {
         const name = String(row.anchor).trim();
         const item = grouped.get(name) || { name, revenue: 0, spend: 0, hours: 0, sessions: 0 };
         item.revenue += parseMetric(row.segmentRevenue || row.liveRevenue || row.videoRevenue);
@@ -522,6 +523,14 @@
       return item ? Number(item.score) || 0 : 0;
     }
 
+    function hasPerformanceRanking() {
+      return Array.isArray(state.performanceRanking) && state.performanceRanking.length > 0;
+    }
+
+    function isSchedulableAnchor(anchor) {
+      return !hasPerformanceRanking() || state.performanceRanking.some(item => item.name === anchor.name);
+    }
+
     function dateInRange(date, start, end) {
       if (!date) return false;
       return (!start || date >= start) && (!end || date <= end);
@@ -549,8 +558,9 @@
         const data = await response.json();
         if (!response.ok || !Array.isArray(data.rows)) throw new Error(data.error || "业绩接口返回格式不正确");
         state.performanceRanking = buildPerformanceRanking(data.rows);
+        state.performancePlatform = "douyin";
         save();
-        status.textContent = `已读取 ${state.performanceRanking.length} 位主播，参考 ${state.performanceStart} 至 ${state.performanceEnd}`;
+        status.textContent = `已读取抖音 ${state.performanceRanking.length} 位主播，只有这些主播进入排班池（${state.performanceStart} 至 ${state.performanceEnd}）`;
         render();
       } catch (error) {
         status.textContent = "读取失败：" + error.message;
@@ -589,6 +599,7 @@
       const status = dayCell(date, anchor.id).status;
       if (status === "休息") return { type: "rest", text: "休息", hours: 0 };
       if (status === "请假") return { type: "leave", text: "请假", hours: 0 };
+      if (!isSchedulableAnchor(anchor)) return { type: "muted", text: "无抖音业绩", hours: 0 };
       const hours = (buildDayPlan(date)[anchor.id] || []).length * SLOT_HOURS;
       if (hours === TARGET_HOURS) return { type: "ok", text: "完成4h", hours };
       if (hours > TARGET_HOURS) return { type: "bad", text: `${hours}h超时`, hours };
