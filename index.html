@@ -361,11 +361,11 @@
 
     let currentTimelineDate = "";
 
-    function allTimelineSlots() {
-      const working = state.anchors.filter(anchor => dayCell(currentTimelineDate, anchor.id).status === "上班" && isSchedulableAnchor(anchor));
+    function allTimelineSlots(date) {
+      const working = state.anchors.filter(anchor => dayCell(date, anchor.id).status === "上班" && isSchedulableAnchor(anchor));
       if (!working.length) return [];
-      const start = Math.min(...working.map(anchor => min(dayStart(currentTimelineDate, anchor))));
-      const end = Math.max(...working.map(anchor => min(dayStart(currentTimelineDate, anchor)) + WORK_HOURS * 60));
+      const start = Math.min(...working.map(anchor => min(dayStart(date, anchor))));
+      const end = Math.max(...working.map(anchor => min(dayStart(date, anchor)) + WORK_HOURS * 60));
       const slots = [];
       for (let t = start; t + SLOT_HOURS * 60 <= end; t += SLOT_HOURS * 60) {
         slots.push(`${timeText(t)}-${timeText(t + SLOT_HOURS * 60)}`);
@@ -385,7 +385,7 @@
 
       let previousAnchorId = "";
       let stopped = false;
-      allTimelineSlots().forEach(slot => {
+      allTimelineSlots(date).forEach(slot => {
         if (stopped) return;
         const candidates = state.anchors
           .filter(anchor => dayCell(date, anchor.id).status === "上班" && isSchedulableAnchor(anchor))
