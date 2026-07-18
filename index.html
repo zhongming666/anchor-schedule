@@ -184,9 +184,9 @@
     <section class="performance-tools">
       <div class="performance-toolbar">
         <strong>按周业绩自动排班</strong>
-        <label>参考业绩周开始 <input id="performanceStart" type="date"></label>
-        <label>参考业绩周结束 <input id="performanceEnd" type="date"></label>
-        <button id="setPerformanceWeek">参考7天</button>
+        <label>自动参考上周开始 <input id="performanceStart" type="date"></label>
+        <label>自动参考上周结束 <input id="performanceEnd" type="date"></label>
+        <button id="setPerformanceWeek">同步上周</button>
         <button id="loadPerformance" class="primary">获取业绩排名</button>
         <button id="generateSchedule">按排名生成本区间排班</button>
         <span id="performanceStatus" class="performance-status">休息、请假仍需手动选择</span>
@@ -259,14 +259,12 @@
         restLimit: Number(anchor.restLimit ?? 4)
       }));
       next.days ||= {};
-      if (!next.performanceStart || !next.performanceEnd) {
-        const end = new Date(next.displayStart + "T00:00:00");
-        end.setDate(end.getDate() - 1);
-        const start = new Date(end);
-        start.setDate(start.getDate() - 6);
-        next.performanceStart ||= localKey(start);
-        next.performanceEnd ||= localKey(end);
-      }
+      const referenceEnd = new Date(next.displayStart + "T00:00:00");
+      referenceEnd.setDate(referenceEnd.getDate() - 1);
+      const referenceStart = new Date(referenceEnd);
+      referenceStart.setDate(referenceStart.getDate() - 6);
+      next.performanceStart = localKey(referenceStart);
+      next.performanceEnd = localKey(referenceEnd);
       if (next.performancePlatform !== "douyin") next.performanceRanking = [];
       return next;
     }
@@ -838,6 +836,7 @@
       if (!state.displayEnd || new Date(state.displayEnd + "T00:00:00") < new Date(state.displayStart + "T00:00:00")) {
         state.displayEnd = state.displayStart;
       }
+      syncPerformanceWeek();
       save();
       render();
     });
@@ -853,13 +852,24 @@
       end.setDate(end.getDate() + 6);
       state[endKey] = localKey(end);
     }
+    function syncPerformanceWeek() {
+      const scheduleStart = state.displayStart;
+      if (!scheduleStart) return;
+      const end = new Date(`${scheduleStart}T00:00:00`);
+      end.setDate(end.getDate() - 1);
+      const start = new Date(end);
+      start.setDate(start.getDate() - 6);
+      state.performanceStart = localKey(start);
+      state.performanceEnd = localKey(end);
+    }
     document.getElementById("setScheduleWeek").addEventListener("click", () => {
       setSevenDayRange("displayStart", "displayEnd");
+      syncPerformanceWeek();
       save();
       render();
     });
     document.getElementById("setPerformanceWeek").addEventListener("click", () => {
-      setSevenDayRange("performanceStart", "performanceEnd");
+      syncPerformanceWeek();
       save();
       render();
     });
