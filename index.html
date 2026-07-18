@@ -167,8 +167,9 @@
       <div class="tips">只选上班状态和班次；固定班次自动套用时间，只有选择自定义时才需要填写时间。</div>
     </div>
     <div class="toolbar">
-      <label>起始日期 <input id="displayStart" type="date"></label>
-      <label>结束日期 <input id="displayEnd" type="date"></label>
+      <label>排班周开始 <input id="displayStart" type="date"></label>
+      <label>排班周结束 <input id="displayEnd" type="date"></label>
+      <button id="setScheduleWeek">排班7天</button>
       <span class="muted" id="displayHint">按选择日期显示</span>
       <button id="addAnchor" class="primary">新增主播</button>
       <button id="autoAll">全部设上班</button>
@@ -183,8 +184,9 @@
     <section class="performance-tools">
       <div class="performance-toolbar">
         <strong>按周业绩自动排班</strong>
-        <label>参考业绩开始 <input id="performanceStart" type="date"></label>
-        <label>参考业绩结束 <input id="performanceEnd" type="date"></label>
+        <label>参考业绩周开始 <input id="performanceStart" type="date"></label>
+        <label>参考业绩周结束 <input id="performanceEnd" type="date"></label>
+        <button id="setPerformanceWeek">参考7天</button>
         <button id="loadPerformance" class="primary">获取业绩排名</button>
         <button id="generateSchedule">按排名生成本区间排班</button>
         <span id="performanceStatus" class="performance-status">休息、请假仍需手动选择</span>
@@ -359,8 +361,6 @@
       return slots;
     }
 
-    let currentTimelineDate = "";
-
     function allTimelineSlots(date) {
       const working = state.anchors.filter(anchor => dayCell(date, anchor.id).status === "上班" && isSchedulableAnchor(anchor));
       if (!working.length) return [];
@@ -377,43 +377,49 @@
       const plan = {};
       const rows = [];
       const counts = {};
-      const gaps = [];
       state.anchors.forEach(anchor => {
         plan[anchor.id] = [];
         counts[anchor.id] = 0;
       });
+      const working = state.anchors.filter(anchor => dayCell(date, anchor.id).status === "上班" && isSchedulableAnchor(anchor));
+      const slots = allTimelineSlots(date);
+      if (!working.length) return { plan, rows, gaps: [], feasible: true, reason: "" };
+      if (working.length * SLOT_COUNT > slots.length) return { plan, rows, gaps: slots, feasible: false, reason: "主播不足" };
+      if (working.some(anchor => anchorSlots(anchor, date).length < SLOT_COUNT)) return { plan, rows, gaps: slots, feasible: false, reason: "班次冲突" };
 
-      let previousAnchorId = "";
-      let stopped = false;
-      allTimelineSlots(date).forEach(slot => {
-        if (stopped) return;
-        const candidates = state.anchors
-          .filter(anchor => dayCell(date, anchor.id).status === "上班" && isSchedulableAnchor(anchor))
-          .filter(anchor => anchorSlots(anchor, date).includes(slot))
+      const failed = new Set();
+      const solve = (index, previousId) => {
+        if (index === slots.length) return working.every(anchor => counts[anchor.id] === SLOT_COUNT);
+        const stateKey = `${index}|${previousId}|${working.map(anchor => counts[anchor.id]).join(",")}`;
+        if (failed.has(stateKey)) return false;
+        const slot = slots[index];
+        const candidates = working
+          .filter(anchor => anchor.id !== previousId)
           .filter(anchor => counts[anchor.id] < SLOT_COUNT)
-          .filter(anchor => anchor.id !== previousAnchorId)
-          .sort((a, b) => {
-            const aEnd = min(dayStart(date, a)) + WORK_HOURS * 60;
-            const bEnd = min(dayStart(date, b)) + WORK_HOURS * 60;
-            return counts[a.id] - counts[b.id] || rankScore(b.name) - rankScore(a.name) || aEnd - bEnd || min(dayStart(date, a)) - min(dayStart(date, b));
-          });
-
-        const picked = candidates[0];
-        if (!picked) {
-          if (rows.length) {
-            gaps.push(slot);
-            stopped = true;
-          }
-          return;
+          .filter(anchor => anchorSlots(anchor, date).includes(slot))
+          .sort((a, b) => rankScore(b.name) - rankScore(a.name) || counts[a.id] - counts[b.id] || a.name.localeCompare(b.name, "zh-CN"));
+        for (const picked of candidates) {
+          plan[picked.id].push(slot);
+          counts[picked.id] += 1;
+          rows.push({ slot, name: picked.name, anchorId: picked.id });
+          if (solve(index + 1, picked.id)) return true;
+          rows.pop();
+          plan[picked.id].pop();
+          counts[picked.id] -= 1;
         }
+        failed.add(stateKey);
+        return false;
+      };
 
-        plan[picked.id].push(slot);
-        counts[picked.id] += 1;
-        previousAnchorId = picked.id;
-        rows.push({ slot, name: picked.name, anchorId: picked.id });
-      });
+      const feasible = solve(0, "");
+      if (!feasible) return { plan: Object.fromEntries(state.anchors.map(anchor => [anchor.id, []])), rows: [], gaps: slots, feasible: false, reason: diagnoseDay(date, working, slots) };
+      return { plan, rows, gaps: [], feasible: true, reason: "" };
+    }
 
-      return { plan, rows, gaps };
+    function diagnoseDay(date, working, slots) {
+      if (working.length < 2) return "主播不足";
+      if (restStatsForRange().overLimit) return "休息过多";
+      return "班次冲突";
     }
 
     function buildDayPlan(date) {
@@ -473,6 +479,14 @@
       return { rest, leave };
     }
 
+    function restStatsForRange() {
+      const overLimit = state.anchors.some(anchor => {
+        const stats = restStats(anchor.id);
+        return stats.rest > Number(anchor.restLimit || 0);
+      });
+      return { overLimit };
+    }
+
     function parseMetric(value) {
       const number = Number(String(value ?? "").replace(/[,￥¥%]/g, "").trim());
       return Number.isFinite(number) && number > 0 ? number : 0;
@@ -490,8 +504,18 @@
 
     function buildPerformanceRanking(rows) {
       const grouped = new Map();
+      let duplicateCount = 0;
+      let missingRoiCount = 0;
+      const uniqueRows = new Map();
       rows.filter(row => row && row.platform !== "video" && row.anchor && dateInRange(row.date, state.performanceStart, state.performanceEnd)).forEach(row => {
         const name = String(row.anchor).trim();
+        const duplicateKey = [row.date, normalizeName(name), row.startTime, row.endTime].join("|");
+        if (uniqueRows.has(duplicateKey)) {
+          duplicateCount += 1;
+          return;
+        }
+        uniqueRows.set(duplicateKey, row);
+        if (parseMetric(row.segmentRevenue) > 0 && !parseMetric(row.segmentSpend)) missingRoiCount += 1;
         const key = normalizeName(name);
         const item = grouped.get(key) || { name, revenue: 0, spend: 0, hours: 0, sessions: 0 };
         item.revenue += parseMetric(row.segmentRevenue || row.liveRevenue || row.videoRevenue);
@@ -505,18 +529,14 @@
         item.hourly = item.hours > 0 ? item.revenue / item.hours : 0;
         return item;
       });
-      const totals = items.reduce((acc, item) => ({
-        revenue: acc.revenue + item.revenue,
-        roi: acc.roi + item.roi,
-        hourly: acc.hourly + item.hourly
-      }), { revenue: 0, roi: 0, hourly: 0 });
-      return items.map(item => {
-        item.revenueShare = totals.revenue ? item.revenue / totals.revenue : 0;
-        item.roiShare = totals.roi ? item.roi / totals.roi : 0;
-        item.hourlyShare = totals.hourly ? item.hourly / totals.hourly : 0;
-        item.score = item.revenueShare * 20 + item.roiShare * 30 + item.hourlyShare * 50;
+      const totalHourly = items.reduce((total, item) => total + item.hourly, 0);
+      const ranking = items.map(item => {
+        item.hourlyShare = totalHourly ? item.hourly / totalHourly : 0;
+        item.score = item.hourlyShare * 100;
         return item;
       }).sort((a, b) => b.score - a.score || b.hourly - a.hourly || b.revenue - a.revenue || a.name.localeCompare(b.name, "zh-CN"));
+      state.performanceMeta = { duplicateCount, missingRoiCount, sourceRows: uniqueRows.size };
+      return ranking;
     }
 
     function rankScore(name) {
@@ -559,10 +579,12 @@
       const panel = document.getElementById("scorePanel");
       const ranking = state.performanceRanking || [];
       if (!ranking.length) {
-        panel.innerHTML = "<span class=\"muted\">还没有业绩排名。获取参考区间后，系统会按成交金额20% + ROI30% + 时产占比50%计算。</span>";
+        panel.innerHTML = "<span class=\"muted\">还没有抖音业绩排名。获取参考业绩周后，系统只按时产从高到低排班。</span>";
         return;
       }
-      panel.innerHTML = `<div class="score-table-wrap"><table class="score-table"><thead><tr><th>排名</th><th>主播</th><th>最终得分</th><th>成交金额</th><th>ROI</th><th>时产</th><th>场次</th></tr></thead><tbody>${ranking.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.name)}</td><td>${item.score.toFixed(2)}</td><td>${formatNumber(item.revenue)}</td><td>${item.roi.toFixed(2)}</td><td>${formatNumber(item.hourly)}</td><td>${item.sessions}</td></tr>`).join("")}</tbody></table></div>`;
+      const meta = state.performanceMeta || {};
+      const quality = `已去重 ${meta.sourceRows || 0} 条 · 重复记录 ${meta.duplicateCount || 0} 条 · 缺失ROI ${meta.missingRoiCount || 0} 条 · 排班只按时产`;
+      panel.innerHTML = `<div class="score-table-wrap"><table class="score-table"><thead><tr><th>排名</th><th>主播</th><th>时产得分</th><th>成交金额</th><th>ROI</th><th>时产</th><th>场次</th></tr></thead><tbody>${ranking.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.name)}</td><td>${item.score.toFixed(2)}</td><td>${formatNumber(item.revenue)}</td><td>${item.roi.toFixed(2)}</td><td>${formatNumber(item.hourly)}</td><td>${item.sessions}</td></tr>`).join("")}</tbody></table></div><div class="muted">${quality}</div>`;
     }
 
     function formatNumber(value) {
@@ -626,8 +648,11 @@
           }
         });
       });
+      const incompleteDates = dates().filter(date => !buildDaySchedule(date).feasible);
       save();
-      document.getElementById("performanceStatus").textContent = `已匹配 ${matchedAnchors.length}/${ranking.length} 位主播，并按排名生成当前显示区间；休息/请假人员未参与排班`;
+      document.getElementById("performanceStatus").textContent = incompleteDates.length
+        ? `已匹配 ${matchedAnchors.length}/${ranking.length} 位主播，但 ${incompleteDates.length} 天无法完整排班：${incompleteDates.map(date => buildDaySchedule(date).reason).join("、")}`
+        : `已匹配 ${matchedAnchors.length}/${ranking.length} 位主播，并按时产生成完整排班；休息/请假人员未参与排班`;
       render();
     }
 
@@ -636,7 +661,9 @@
       if (status === "休息") return { type: "rest", text: "休息", hours: 0 };
       if (status === "请假") return { type: "leave", text: "请假", hours: 0 };
       if (!isSchedulableAnchor(anchor)) return { type: "muted", text: "无抖音业绩", hours: 0 };
-      const hours = (buildDayPlan(date)[anchor.id] || []).length * SLOT_HOURS;
+      const schedule = buildDaySchedule(date);
+      if (!schedule.feasible) return { type: "bad", text: "待调整", hours: 0 };
+      const hours = (schedule.plan[anchor.id] || []).length * SLOT_HOURS;
       if (hours === TARGET_HOURS) return { type: "ok", text: "完成4h", hours };
       if (hours > TARGET_HOURS) return { type: "bad", text: `${hours}h超时`, hours };
       return { type: "warn", text: `${hours}h未满`, hours };
@@ -652,9 +679,9 @@
         if (result.type === "warn") warn++;
       });
       const text = schedule.rows.length ? schedule.rows.map(item => `${item.name} ${item.slot}`).join("\n") : "未排班";
-      const gapText = schedule.gaps.length ? `\n断播：${schedule.gaps.join("、")}` : "";
+      const gapText = !schedule.feasible ? `\n排班未完成：${schedule.reason}` : "";
       return {
-        type: bad ? "bad" : warn ? "warn" : "ok",
+        type: !schedule.feasible || bad ? "bad" : warn ? "warn" : "ok",
         text: text + gapText
       };
     }
@@ -816,6 +843,23 @@
     });
     document.getElementById("displayEnd").addEventListener("change", (e) => {
       state.displayEnd = e.target.value;
+      save();
+      render();
+    });
+    function setSevenDayRange(startKey, endKey) {
+      const start = document.getElementById(startKey).value;
+      if (!start) return;
+      const end = new Date(`${start}T00:00:00`);
+      end.setDate(end.getDate() + 6);
+      state[endKey] = localKey(end);
+    }
+    document.getElementById("setScheduleWeek").addEventListener("click", () => {
+      setSevenDayRange("displayStart", "displayEnd");
+      save();
+      render();
+    });
+    document.getElementById("setPerformanceWeek").addEventListener("click", () => {
+      setSevenDayRange("performanceStart", "performanceEnd");
       save();
       render();
     });
