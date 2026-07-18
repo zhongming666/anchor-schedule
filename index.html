@@ -559,9 +559,13 @@
         if (!response.ok || !Array.isArray(data.rows)) throw new Error(data.error || "业绩接口返回格式不正确");
         state.performanceRanking = buildPerformanceRanking(data.rows);
         state.performancePlatform = "douyin";
-        save();
-        status.textContent = `已读取抖音 ${state.performanceRanking.length} 位主播，只有这些主播进入排班池（${state.performanceStart} 至 ${state.performanceEnd}）`;
-        render();
+        if (!state.performanceRanking.length) {
+          save();
+          status.textContent = `参考区间内没有抖音业绩记录（${state.performanceStart} 至 ${state.performanceEnd}）`;
+          render();
+          return;
+        }
+        generateScheduleByRanking();
       } catch (error) {
         status.textContent = "读取失败：" + error.message;
       }
