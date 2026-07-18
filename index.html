@@ -527,10 +527,12 @@
         item.hourly = item.hours > 0 ? item.revenue / item.hours : 0;
         return item;
       });
+      const totalRevenue = items.reduce((total, item) => total + item.revenue, 0);
       const totalHourly = items.reduce((total, item) => total + item.hourly, 0);
       const ranking = items.map(item => {
+        item.revenueShare = totalRevenue ? item.revenue / totalRevenue : 0;
         item.hourlyShare = totalHourly ? item.hourly / totalHourly : 0;
-        item.score = item.hourlyShare * 100;
+        item.score = item.revenueShare * 50 + item.hourlyShare * 50;
         return item;
       }).sort((a, b) => b.score - a.score || b.hourly - a.hourly || b.revenue - a.revenue || a.name.localeCompare(b.name, "zh-CN"));
       state.performanceMeta = { duplicateCount, missingRoiCount, sourceRows: uniqueRows.size };
@@ -577,12 +579,12 @@
       const panel = document.getElementById("scorePanel");
       const ranking = state.performanceRanking || [];
       if (!ranking.length) {
-        panel.innerHTML = "<span class=\"muted\">还没有抖音业绩排名。获取参考业绩周后，系统只按时产从高到低排班。</span>";
+        panel.innerHTML = "<span class=\"muted\">还没有抖音业绩排名。获取参考业绩周后，系统按 GMV 50% + 时产 50% 排班，不考核 ROI。</span>";
         return;
       }
       const meta = state.performanceMeta || {};
-      const quality = `已去重 ${meta.sourceRows || 0} 条 · 重复记录 ${meta.duplicateCount || 0} 条 · 缺失ROI ${meta.missingRoiCount || 0} 条 · 排班只按时产`;
-      panel.innerHTML = `<div class="score-table-wrap"><table class="score-table"><thead><tr><th>排名</th><th>主播</th><th>时产得分</th><th>成交金额</th><th>ROI</th><th>时产</th><th>场次</th></tr></thead><tbody>${ranking.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.name)}</td><td>${item.score.toFixed(2)}</td><td>${formatNumber(item.revenue)}</td><td>${item.roi.toFixed(2)}</td><td>${formatNumber(item.hourly)}</td><td>${item.sessions}</td></tr>`).join("")}</tbody></table></div><div class="muted">${quality}</div>`;
+      const quality = `已去重 ${meta.sourceRows || 0} 条 · 重复记录 ${meta.duplicateCount || 0} 条 · 评分规则：GMV 50% + 时产 50% · ROI不参与考核`;
+      panel.innerHTML = `<div class="score-table-wrap"><table class="score-table"><thead><tr><th>排名</th><th>主播</th><th>最终得分</th><th>GMV</th><th>时产</th><th>场次</th></tr></thead><tbody>${ranking.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.name)}</td><td>${item.score.toFixed(2)}</td><td>${formatNumber(item.revenue)}</td><td>${formatNumber(item.hourly)}</td><td>${item.sessions}</td></tr>`).join("")}</tbody></table></div><div class="muted">${quality}</div>`;
     }
 
     function formatNumber(value) {
@@ -650,7 +652,7 @@
       save();
       document.getElementById("performanceStatus").textContent = incompleteDates.length
         ? `已匹配 ${matchedAnchors.length}/${ranking.length} 位主播，但 ${incompleteDates.length} 天无法完整排班：${incompleteDates.map(date => buildDaySchedule(date).reason).join("、")}`
-        : `已匹配 ${matchedAnchors.length}/${ranking.length} 位主播，并按时产生成完整排班；休息/请假人员未参与排班`;
+        : `已匹配 ${matchedAnchors.length}/${ranking.length} 位主播，并按 GMV50% + 时产50% 生成完整排班；休息/请假人员未参与排班`;
       render();
     }
 
