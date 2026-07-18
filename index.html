@@ -536,6 +536,20 @@
       return !hasPerformanceRanking() || state.performanceRanking.some(item => normalizeName(item.name) === normalizeName(anchor.name));
     }
 
+    function addRankedAnchors() {
+      const existing = new Set(state.anchors.map(anchor => normalizeName(anchor.name)));
+      const added = [];
+      (state.performanceRanking || []).forEach(item => {
+        const key = normalizeName(item.name);
+        if (!key || existing.has(key)) return;
+        const anchor = { id: id(), name: item.name.trim(), shift: "早班", start: "06:00", restLimit: 4 };
+        state.anchors.push(anchor);
+        existing.add(key);
+        added.push(anchor.name);
+      });
+      return added;
+    }
+
     function dateInRange(date, start, end) {
       if (!date) return false;
       return (!start || date >= start) && (!end || date <= end);
@@ -570,7 +584,12 @@
           render();
           return;
         }
+        const added = addRankedAnchors();
+        save();
         generateScheduleByRanking();
+        if (added.length) {
+          document.getElementById("performanceStatus").textContent = `已自动新增 ${added.length} 位主播：${added.join("、")}，并按排名生成排班`;
+        }
       } catch (error) {
         status.textContent = "读取失败：" + error.message;
       }
@@ -582,6 +601,8 @@
         alert("请先点击“获取业绩排名”");
         return;
       }
+      addRankedAnchors();
+      save();
       const rankIndex = new Map(ranking.map((item, index) => [normalizeName(item.name), index]));
       const presets = Object.entries(SHIFTS);
       const matchedAnchors = state.anchors.filter(isSchedulableAnchor);
