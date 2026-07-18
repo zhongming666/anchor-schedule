@@ -251,7 +251,7 @@
       }
       next.anchors = (next.anchors || []).map(anchor => ({
         id: anchor.id || id(),
-        name: anchor.name || "未命名",
+        name: String(anchor.name || "未命名").trim(),
         shift: normalizeShift(anchor.shift || shiftByStart(anchor.start || "06:00")),
         start: anchor.start || SHIFTS[normalizeShift(anchor.shift)] || "06:00",
         restLimit: Number(anchor.restLimit ?? 4)
@@ -492,12 +492,13 @@
       const grouped = new Map();
       rows.filter(row => row && row.platform !== "video" && row.anchor && dateInRange(row.date, state.performanceStart, state.performanceEnd)).forEach(row => {
         const name = String(row.anchor).trim();
-        const item = grouped.get(name) || { name, revenue: 0, spend: 0, hours: 0, sessions: 0 };
+        const key = normalizeName(name);
+        const item = grouped.get(key) || { name, revenue: 0, spend: 0, hours: 0, sessions: 0 };
         item.revenue += parseMetric(row.segmentRevenue || row.liveRevenue || row.videoRevenue);
         item.spend += parseMetric(row.segmentSpend || row.totalSpend);
         item.hours += durationHours(row) || (String(row.duration || "").includes("2") ? 2 : 0);
         item.sessions += 1;
-        grouped.set(name, item);
+        grouped.set(key, item);
       });
       const items = [...grouped.values()].map(item => {
         item.roi = item.spend > 0 ? item.revenue / item.spend : 0;
@@ -519,8 +520,12 @@
     }
 
     function rankScore(name) {
-      const item = (state.performanceRanking || []).find(row => row.name === name);
+      const item = (state.performanceRanking || []).find(row => normalizeName(row.name) === normalizeName(name));
       return item ? Number(item.score) || 0 : 0;
+    }
+
+    function normalizeName(name) {
+      return String(name || "").replace(/\s+/g, "").trim();
     }
 
     function hasPerformanceRanking() {
@@ -528,7 +533,7 @@
     }
 
     function isSchedulableAnchor(anchor) {
-      return !hasPerformanceRanking() || state.performanceRanking.some(item => item.name === anchor.name);
+      return !hasPerformanceRanking() || state.performanceRanking.some(item => normalizeName(item.name) === normalizeName(anchor.name));
     }
 
     function dateInRange(date, start, end) {
@@ -577,12 +582,18 @@
         alert("请先点击“获取业绩排名”");
         return;
       }
-      const rankIndex = new Map(ranking.map((item, index) => [item.name, index]));
+      const rankIndex = new Map(ranking.map((item, index) => [normalizeName(item.name), index]));
       const presets = Object.entries(SHIFTS);
+      const matchedAnchors = state.anchors.filter(isSchedulableAnchor);
+      if (!matchedAnchors.length) {
+        document.getElementById("performanceStatus").textContent = `业绩已读取 ${ranking.length} 位主播，但排班表没有同名主播，请先统一主播姓名`;
+        render();
+        return;
+      }
       dates().forEach(date => {
-        const available = state.anchors.filter(anchor => dayCell(date, anchor.id).status === "上班").sort((a, b) => {
-          const ai = rankIndex.has(a.name) ? rankIndex.get(a.name) : 9999;
-          const bi = rankIndex.has(b.name) ? rankIndex.get(b.name) : 9999;
+        const available = matchedAnchors.filter(anchor => dayCell(date, anchor.id).status === "上班").sort((a, b) => {
+          const ai = rankIndex.has(normalizeName(a.name)) ? rankIndex.get(normalizeName(a.name)) : 9999;
+          const bi = rankIndex.has(normalizeName(b.name)) ? rankIndex.get(normalizeName(b.name)) : 9999;
           return ai - bi || a.name.localeCompare(b.name, "zh-CN");
         });
         available.forEach((anchor, index) => {
@@ -595,7 +606,7 @@
         });
       });
       save();
-      document.getElementById("performanceStatus").textContent = "已按最终得分生成当前显示区间，休息/请假人员未参与排班";
+      document.getElementById("performanceStatus").textContent = `已匹配 ${matchedAnchors.length}/${ranking.length} 位主播，并按排名生成当前显示区间；休息/请假人员未参与排班`;
       render();
     }
 
